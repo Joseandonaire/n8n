@@ -1,8 +1,11 @@
 FROM n8nio/n8n:1.88.0
 
-# Configuración para Railway: utilizar el puerto 8080 y escuchar en todas las interfaces
+# Configuración para que n8n escuche en el puerto 8080
 ENV N8N_PORT=8080
 ENV N8N_HOST=0.0.0.0
 
-# Establece la URL pública de tu servicio en Railway para que los webhooks se construyan correctamente
+# Variable que muchos PaaS (como Railway) usan para redirigir el tráfico y realizar el healthcheck
+ENV PORT=8080
+
+# Define la URL pública que Railway te asigna (la usas para que se construyan correctamente los webhooks)
 ENV WEBHOOK_TUNNEL_URL=https://primary-production-9a03b.up.railway.app
