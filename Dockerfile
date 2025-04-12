@@ -5,6 +5,3 @@ USER root
 USER node
 
 # La imagen oficial ya define el CMD necesario para iniciar n8n
-
-# Install the desired npm packages globally
-RUN npm install -g firecrawl-mcp
