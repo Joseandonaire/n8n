@@ -1,17 +1,19 @@
 FROM n8nio/n8n:1.88.0
 
-# Cambiar a usuario root para poder instalar paquetes globales
+# Cambiar a usuario root para poder realizar instalaciones globales
 USER root
 
-# Actualizar npm (para asegurarnos de que 'npx' venga correcto)
+# Actualizar npm para obtener la versión más reciente
 RUN npm install -g npm@latest
 
-# Instalar 'npx' globalmente (por si la versión de npm en la imagen no lo trae)
+# Eliminar npx si ya existe para evitar conflictos
+RUN rm -f /usr/local/bin/npx
+
+# Instalar npx globalmente
 RUN npm install -g npx
 
-# (Opcional) Instalar aquí cualquier paquete que provea el comando que uses
-# Supongamos que el binario se llama 'supergateway' y se instala con:
+# Instalar el paquete "supergateway" (reemplaza 'supergateway' si el paquete se llama de otra forma)
 RUN npm install -g supergateway
 
-# Regresar a usuario node (recomendado por seguridad)
+# Regresar al usuario "node"
 USER node
