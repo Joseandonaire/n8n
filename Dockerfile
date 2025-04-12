@@ -1,7 +1,12 @@
 FROM n8nio/n8n:1.88.0
 
+# Cambiar a usuario root para poder instalar paquetes globalmente
 USER root
-# Se quita la instalación de firewall-cxp porque no existe en npm
+
+# Instalar el paquete "supergateway" globalmente
+RUN npm install -g supergateway
+
+# Regresar al usuario "node" (que es el recomendado para correr n8n)
 USER node
 
-# La imagen oficial ya define el CMD necesario para iniciar n8n
+# (Aquí puedes agregar más configuraciones si las necesitas)
