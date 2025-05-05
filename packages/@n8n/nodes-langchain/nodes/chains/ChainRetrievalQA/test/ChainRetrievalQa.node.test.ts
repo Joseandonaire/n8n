@@ -3,10 +3,15 @@ import type { BaseLanguageModel } from '@langchain/core/language_models/base';
 import type { BaseRetriever } from '@langchain/core/retrievers';
 import { FakeChatModel, FakeLLM, FakeRetriever } from '@langchain/core/utils/testing';
 import get from 'lodash/get';
-import type { IDataObject, IExecuteFunctions } from 'n8n-workflow';
-import { NodeConnectionType, NodeOperationError, UnexpectedError } from 'n8n-workflow';
+import type { IDataObject, IExecuteFunctions, NodeConnectionType } from 'n8n-workflow';
+import { NodeConnectionTypes, NodeOperationError, UnexpectedError } from 'n8n-workflow';
 
 import { ChainRetrievalQa } from '../ChainRetrievalQa.node';
+
+jest.mock('n8n-workflow', () => ({
+	...jest.requireActual('n8n-workflow'),
+	sleep: jest.fn(),
+}));
 
 const createExecuteFunctionsMock = (
 	parameters: IDataObject,
@@ -27,10 +32,10 @@ const createExecuteFunctionsMock = (
 			};
 		},
 		getInputConnectionData(type: NodeConnectionType) {
-			if (type === NodeConnectionType.AiLanguageModel) {
+			if (type === NodeConnectionTypes.AiLanguageModel) {
 				return fakeLlm;
 			}
-			if (type === NodeConnectionType.AiRetriever) {
+			if (type === NodeConnectionTypes.AiRetriever) {
 				return fakeRetriever;
 			}
 			return null;
@@ -80,7 +85,12 @@ describe('ChainRetrievalQa', () => {
 			const params = {
 				promptType: 'define',
 				text: 'What is the capital of France?',
-				options: {},
+				options: {
+					batching: {
+						batchSize: 1,
+						delayBetweenBatches: 100,
+					},
+				},
 			};
 
 			const result = await node.execute.call(
@@ -114,7 +124,12 @@ describe('ChainRetrievalQa', () => {
 			const params = {
 				promptType: 'define',
 				text: 'What is the capital of France?',
-				options: {},
+				options: {
+					batching: {
+						batchSize: 1,
+						delayBetweenBatches: 100,
+					},
+				},
 			};
 
 			const result = await node.execute.call(
@@ -158,6 +173,10 @@ describe('ChainRetrievalQa', () => {
 				text: 'What is the capital of France?',
 				options: {
 					systemPromptTemplate: customSystemPrompt,
+					batching: {
+						batchSize: 1,
+						delayBetweenBatches: 100,
+					},
 				},
 			};
 
@@ -185,7 +204,12 @@ describe('ChainRetrievalQa', () => {
 			const params = {
 				promptType: 'define',
 				text: undefined, // undefined query
-				options: {},
+				options: {
+					batching: {
+						batchSize: 1,
+						delayBetweenBatches: 100,
+					},
+				},
 			};
 
 			await expect(
@@ -211,7 +235,12 @@ describe('ChainRetrievalQa', () => {
 			const params = {
 				promptType: 'define',
 				text: 'What is the capital of France?',
-				options: {},
+				options: {
+					batching: {
+						batchSize: 1,
+						delayBetweenBatches: 100,
+					},
+				},
 			};
 
 			// Override continueOnFail to return true

@@ -1,10 +1,10 @@
 import type { CreateFolderDto, DeleteFolderDto, UpdateFolderDto } from '@n8n/api-types';
+import { Folder } from '@n8n/db';
 import { Service } from '@n8n/di';
 // eslint-disable-next-line n8n-local-rules/misplaced-n8n-typeorm-import
 import type { EntityManager } from '@n8n/typeorm';
 import { UserError, PROJECT_ROOT } from 'n8n-workflow';
 
-import { Folder } from '@/databases/entities/folder';
 import { FolderTagMappingRepository } from '@/databases/repositories/folder-tag-mapping.repository';
 import { FolderRepository } from '@/databases/repositories/folder.repository';
 import { WorkflowRepository } from '@/databases/repositories/workflow.repository';
@@ -138,7 +138,9 @@ export class FolderService {
 			throw new UserError('Cannot transfer folder contents to the folder being deleted');
 		}
 
-		await this.findFolderInProjectOrFail(transferToFolderId, projectId);
+		if (transferToFolderId !== PROJECT_ROOT) {
+			await this.findFolderInProjectOrFail(transferToFolderId, projectId);
+		}
 
 		return await this.folderRepository.manager.transaction(async (tx) => {
 			await this.folderRepository.moveAllToFolder(folderId, transferToFolderId, tx);

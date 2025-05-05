@@ -11,7 +11,13 @@ import type { AgentAction, AgentFinish } from 'langchain/agents';
 import { AgentExecutor, createToolCallingAgent } from 'langchain/agents';
 import type { ToolsAgentAction } from 'langchain/dist/agents/tool_calling/output_parser';
 import { omit } from 'lodash';
-import { BINARY_ENCODING, jsonParse, NodeConnectionType, NodeOperationError } from 'n8n-workflow';
+import {
+	BINARY_ENCODING,
+	jsonParse,
+	NodeConnectionTypes,
+	NodeOperationError,
+	sleep,
+} from 'n8n-workflow';
 import type { IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
 import type { ZodObject } from 'zod';
 import { z } from 'zod';
@@ -275,7 +281,7 @@ export const getAgentStepsParser =
  * @returns The validated chat model
  */
 export async function getChatModel(ctx: IExecuteFunctions): Promise<BaseChatModel> {
-	const model = await ctx.getInputConnectionData(NodeConnectionType.AiLanguageModel, 0);
+	const model = await ctx.getInputConnectionData(NodeConnectionTypes.AiLanguageModel, 0);
 	if (!isChatInstance(model) || !model.bindTools) {
 		throw new NodeOperationError(
 			ctx.getNode(),
@@ -294,7 +300,7 @@ export async function getChatModel(ctx: IExecuteFunctions): Promise<BaseChatMode
 export async function getOptionalMemory(
 	ctx: IExecuteFunctions,
 ): Promise<BaseChatMemory | undefined> {
-	return (await ctx.getInputConnectionData(NodeConnectionType.AiMemory, 0)) as
+	return (await ctx.getInputConnectionData(NodeConnectionTypes.AiMemory, 0)) as
 		| BaseChatMemory
 		| undefined;
 }
@@ -346,17 +352,30 @@ export async function prepareMessages(
 		outputParser?: N8nOutputParser;
 	},
 ): Promise<BaseMessagePromptTemplateLike[]> {
-	const messages: BaseMessagePromptTemplateLike[] = [
-		['system', `{system_message}${options.outputParser ? '\n\n{formatting_instructions}' : ''}`],
-		['placeholder', '{chat_history}'],
-		['human', '{input}'],
-	];
+	const useSystemMessage = options.systemMessage ?? ctx.getNode().typeVersion < 1.9;
+
+	const messages: BaseMessagePromptTemplateLike[] = [];
+
+	if (useSystemMessage) {
+		messages.push([
+			'system',
+			`{system_message}${options.outputParser ? '\n\n{formatting_instructions}' : ''}`,
+		]);
+	} else if (options.outputParser) {
+		messages.push(['system', '{formatting_instructions}']);
+	}
+
+	messages.push(['placeholder', '{chat_history}'], ['human', '{input}']);
 
 	// If there is binary data and the node option permits it, add a binary message
 	const hasBinaryData = ctx.getInputData()?.[itemIndex]?.binary !== undefined;
 	if (hasBinaryData && options.passthroughBinaryImages) {
 		const binaryMessage = await extractBinaryMessages(ctx, itemIndex);
-		messages.push(binaryMessage);
+		if (binaryMessage.content.length !== 0) {
+			messages.push(binaryMessage);
+		} else {
+			ctx.logger.debug('Not attaching binary message, since its content was empty');
+		}
 	}
 
 	// We add the agent scratchpad last, so that the agent will not run in loops
@@ -393,12 +412,21 @@ export async function toolsAgentExecute(this: IExecuteFunctions): Promise<INodeE
 	const returnData: INodeExecutionData[] = [];
 	const items = this.getInputData();
 	const outputParser = await getOptionalOutputParser(this);
+	const memory = await getOptionalMemory(this);
 	const tools = await getTools(this, outputParser);
+	const { batchSize, delayBetweenBatches } = this.getNodeParameter('options.batching', 0, {
+		batchSize: 1,
+		delayBetweenBatches: 0,
+	}) as {
+		batchSize: number;
+		delayBetweenBatches: number;
+	};
 
-	for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
-		try {
+	for (let i = 0; i < items.length; i += batchSize) {
+		const batch = items.slice(i, i + batchSize);
+		const batchPromises = batch.map(async (_item, batchItemIndex) => {
+			const itemIndex = i + batchItemIndex;
 			const model = await getChatModel(this);
-			const memory = await getOptionalMemory(this);
 
 			const input = getPromptInputByType({
 				ctx: this,
@@ -448,7 +476,7 @@ export async function toolsAgentExecute(this: IExecuteFunctions): Promise<INodeE
 			});
 
 			// Invoke the executor with the given input and system message.
-			const response = await executor.invoke(
+			return await executor.invoke(
 				{
 					input,
 					system_message: options.systemMessage ?? SYSTEM_MESSAGE,
@@ -457,7 +485,22 @@ export async function toolsAgentExecute(this: IExecuteFunctions): Promise<INodeE
 				},
 				{ signal: this.getExecutionCancelSignal() },
 			);
+		});
+		const batchResults = await Promise.allSettled(batchPromises);
 
+		batchResults.forEach((result, index) => {
+			if (result.status === 'rejected') {
+				if (this.continueOnFail()) {
+					returnData.push({
+						json: { error: result.reason as string },
+						pairedItem: { item: index },
+					});
+					return;
+				} else {
+					throw new NodeOperationError(this.getNode(), result.reason);
+				}
+			}
+			const response = result.value;
 			// If memory and outputParser are connected, parse the output.
 			if (memory && outputParser) {
 				const parsedOutput = jsonParse<{ output: Record<string, unknown> }>(
@@ -479,15 +522,10 @@ export async function toolsAgentExecute(this: IExecuteFunctions): Promise<INodeE
 			};
 
 			returnData.push(itemResult);
-		} catch (error) {
-			if (this.continueOnFail()) {
-				returnData.push({
-					json: { error: error.message },
-					pairedItem: { item: itemIndex },
-				});
-				continue;
-			}
-			throw error;
+		});
+
+		if (i + batchSize < items.length && delayBetweenBatches > 0) {
+			await sleep(delayBetweenBatches);
 		}
 	}
 
